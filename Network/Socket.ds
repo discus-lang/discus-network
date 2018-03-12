@@ -1,0 +1,109 @@
+module Network.Socket
+
+export {
+  networkSocket_socket;
+  networkSocket_bind;
+  networkSocket_connect;
+  networkSocket_write;
+}
+
+import foreign abstract type
+  SOCKET : Effect
+
+import foreign c value
+
+  socket : CInt -> CInt -> CInt -> S SOCKET CInt
+  bind : FD -> Word64# -> Nat# -> S SOCKET CInt
+  connect : FD -> Word64# -> Nat# -> S SOCKET CInt
+
+  write : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Read r) Int#
+
+  ddcVectorGuts : {@r: Region} -> Vector# r Word8# -> Word64#
+
+where
+
+type CInt = Int#
+type FD = Nat#
+
+data Socket where
+  Socket : FD -> Socket
+
+data Family where
+  AF_INET : Family
+
+data SocketType where
+  SOCK_STREAM : SocketType
+
+type ProtocolNumber = Nat#
+
+networkSocket_socket (family: Family) (type_: SocketType) (protocol: ProtocolNumber): S SOCKET Socket
+  = Socket (truncate# (socket (familyToC family) (socketTypeToC type_) (promote# protocol)))
+
+familyToC (x: Family): CInt
+  = case x of
+      AF_INET -> 2i
+
+socketTypeToC (x: SocketType): CInt
+  = case x of
+      SOCK_STREAM -> 1i
+
+---------------------------------------------------------------------------------------
+
+type PortNumber = Word16#
+
+type HostAddress = Word32#
+
+data SockAddr where
+  SockAddrInet
+     : PortNumber
+    -> HostAddress
+    -> SockAddr
+
+networkSocket_bind : Socket -> SockAddr -> S SOCKET Unit
+networkSocket_bind (Socket s) sockaddr
+  = private r with { Alloc r; Write r; Read r } in
+    do    
+          let size = 16
+          sockaddr_vec : Vector# r Word8# = vectorAlloc# [r] size
+          writeSockAddr sockaddr sockaddr_vec
+
+          bind s (ddcVectorGuts sockaddr_vec) size
+          ()
+
+networkSocket_connect : Socket -> SockAddr -> S SOCKET Unit
+networkSocket_connect (Socket s) sockaddr
+  = private r with { Alloc r; Write r; Read r } in
+    do    
+          let size = 16 
+          sockaddr_vec : Vector# r Word8# = vectorAlloc# [r] size
+          writeSockAddr sockaddr sockaddr_vec
+          connect s (ddcVectorGuts sockaddr_vec) size
+          ()
+
+networkSocket_write [r : Region] ((Socket s): Socket) (vec: Vector# r Word8#): S (SOCKET + Read r) Int#
+  = write [r] s (ddcVectorGuts vec) (vectorLength# [r] [Word8#] vec)
+
+{-
+struct sockaddr_in {
+  uint16_t       sin_family;
+  uint16_t       sin_port;
+  struct in_addr sin_addr;
+}
+-}
+writeSockAddr [r : Region] (sa: SockAddr) (vec: Vector# r Word8#): S (Write r) Unit
+  = case sa of
+      SockAddrInet port addr ->
+        do
+            let size = 16 
+            let af: Word16 = truncate# (familyToC AF_INET)
+            vectorWrite# vec 0 (truncate# (shr# af 0w16))
+            vectorWrite# vec 1 (truncate# (shr# af 8w16))
+
+            vectorWrite# vec 2 (truncate# (shr# port 8w16))
+            vectorWrite# vec 3 (truncate# (shr# port 0w16))
+
+            vectorWrite# vec 4 (truncate# (shr# addr 24w32))
+            vectorWrite# vec 5 (truncate# (shr# addr 16w32))
+            vectorWrite# vec 6 (truncate# (shr# addr  8w32))
+            vectorWrite# vec 7 (truncate# (shr# addr  0w32))
+            ()

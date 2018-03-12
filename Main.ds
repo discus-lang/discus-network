@@ -1,0 +1,18 @@
+module Main
+import Data.Text
+import Network.Socket
+where
+
+main ()
+  = do  
+        sock = networkSocket_socket AF_INET SOCK_STREAM 0
+
+        -- This segfaults, because `bind` resolves to `Class.Monad.bind`
+        -- networkSocket_bind sock (SockAddrInet 0w16 0w32)
+
+        networkSocket_connect sock (SockAddrInet 1234w16 0w32)
+
+        private r with { Alloc r; Read r } in
+          networkSocket_write sock (vectorOfText [r] "Hello World!\n")
+
+        ()
