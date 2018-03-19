@@ -95,7 +95,7 @@ writeSockAddr [r : Region] (sa: SockAddr) (vec: Vector# r Word8#): S (Write r) U
       SockAddrInet port addr ->
         do
             let size = 16 
-            let af: Word16 = truncate# (familyToC AF_INET)
+            let af: Word16# = truncate# (familyToC AF_INET)
             vectorWrite# vec 0 (truncate# (shr# af 0w16))
             vectorWrite# vec 1 (truncate# (shr# af 8w16))
 
