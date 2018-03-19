@@ -5,6 +5,7 @@ export {
   networkSocket_bind;
   networkSocket_connect;
   networkSocket_write;
+  networkSocket_read;
 }
 
 import foreign abstract type
@@ -16,7 +17,8 @@ import foreign c value
   bind : FD -> Word64# -> Nat# -> S SOCKET CInt
   connect : FD -> Word64# -> Nat# -> S SOCKET CInt
 
-  write : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Read r) Int#
+  write : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Read r) CInt
+  read : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Write r) CInt
 
   ddcVectorGuts : {@r: Region} -> Vector# r Word8# -> Word64#
 
@@ -87,6 +89,9 @@ networkSocket_connect (Socket s) sockaddr
 
 networkSocket_write [r : Region] ((Socket s): Socket) (vec: Vector r Word8): S (SOCKET + Read r) Int#
   = write [r] s (ddcVectorGuts vec) (vectorLength# [r] [Word8#] vec)
+
+networkSocket_read [r : Region] ((Socket s): Socket) (vec: Vector r Word8): S (SOCKET + Write r) Int#
+  = read [r] s (ddcVectorGuts vec) (vectorLength# [r] [Word8#] vec)
 
 size_sockaddr: Nat = 16 
 

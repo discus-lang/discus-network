@@ -1,17 +1,28 @@
 module Main
+import Class.Show
+import Data.Numeric.Word8
 import Data.Text
 import Network.Socket
+import System.IO.Console
 where
 
 main ()
   = do  
         sock = networkSocket_socket AF_INET SOCK_STREAM 0
-
         networkSocket_bind sock (SockAddrInet 0w16 0w32)
-
         networkSocket_connect sock (SockAddrInet 1234w16 0w32)
 
-        private r with { Alloc r; Read r } in
-          networkSocket_write sock (vectorOfText [r] "Hello World!\n")
+        writel $ "Connected"
+
+        private r with { Alloc r; Read r; Write r } in
+          do
+              nbytes = networkSocket_write sock (vectorOfText [r] "Hello World!\n")
+              writel $ "Written " % show (truncate# [Nat] nbytes) % " bytes"
+
+        private r with { Alloc r; Read r; Write r } in
+          do
+              readBuf = vectorAlloc# [r] [Word8] 1024
+              nbytes = networkSocket_read sock readBuf
+              writel $ "Read " % show (truncate# [Nat] nbytes) % " bytes"
 
         ()
