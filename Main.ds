@@ -7,8 +7,7 @@ main ()
   = do  
         sock = networkSocket_socket AF_INET SOCK_STREAM 0
 
-        -- This segfaults, because `bind` resolves to `Class.Monad.bind`
-        -- networkSocket_bind sock (SockAddrInet 0w16 0w32)
+        networkSocket_bind sock (SockAddrInet 0w16 0w32)
 
         networkSocket_connect sock (SockAddrInet 1234w16 0w32)
 
