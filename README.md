@@ -16,12 +16,13 @@ Address families (`struct sockaddr` encoding):
 BSD sockets functions:
 
 - `socket`
-- `bind` (doesn't work)
+- `bind`
 - `connect`
 
 POSIX functions:
 
 - `write`
+- `read`
 
 ## Known issues
 
