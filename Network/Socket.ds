@@ -20,10 +20,22 @@ import foreign c value
 
   ddcVectorGuts : {@r: Region} -> Vector# r Word8# -> Word64#
 
+import Data.Numeric.Word8
+import Data.Numeric.Word16
+import Data.Numeric.Word32
+import Data.Numeric.Int
+import Data.Numeric.Nat
+
 where
 
-type CInt = Int#
-type FD = Nat#
+type CInt = Int
+type FD = Nat
+
+type Vector = Vector#
+
+type PortNumber = Word16
+
+type HostAddress = Word32
 
 data Socket where
   Socket : FD -> Socket
@@ -49,10 +61,6 @@ socketTypeToC (x: SocketType): CInt
 
 ---------------------------------------------------------------------------------------
 
-type PortNumber = Word16#
-
-type HostAddress = Word32#
-
 data SockAddr where
   SockAddrInet
      : PortNumber
@@ -63,47 +71,56 @@ networkSocket_bind : Socket -> SockAddr -> S SOCKET Unit
 networkSocket_bind (Socket s) sockaddr
   = private r with { Alloc r; Write r; Read r } in
     do    
-          let size = 16
-          sockaddr_vec : Vector# r Word8# = vectorAlloc# [r] size
+          sockaddr_vec : Vector r Word8 = vectorAlloc# [r] size_sockaddr
           writeSockAddr sockaddr sockaddr_vec
-
-          bind s (ddcVectorGuts sockaddr_vec) size
+          bind s (ddcVectorGuts sockaddr_vec) size_sockaddr
           ()
 
 networkSocket_connect : Socket -> SockAddr -> S SOCKET Unit
 networkSocket_connect (Socket s) sockaddr
   = private r with { Alloc r; Write r; Read r } in
     do    
-          let size = 16 
-          sockaddr_vec : Vector# r Word8# = vectorAlloc# [r] size
+          sockaddr_vec : Vector r Word8 = vectorAlloc# [r] size_sockaddr
           writeSockAddr sockaddr sockaddr_vec
-          connect s (ddcVectorGuts sockaddr_vec) size
+          connect s (ddcVectorGuts sockaddr_vec) size_sockaddr
           ()
 
-networkSocket_write [r : Region] ((Socket s): Socket) (vec: Vector# r Word8#): S (SOCKET + Read r) Int#
+networkSocket_write [r : Region] ((Socket s): Socket) (vec: Vector r Word8): S (SOCKET + Read r) Int#
   = write [r] s (ddcVectorGuts vec) (vectorLength# [r] [Word8#] vec)
 
-{-
-struct sockaddr_in {
-  uint16_t       sin_family;
-  uint16_t       sin_port;
-  struct in_addr sin_addr;
-}
--}
-writeSockAddr [r : Region] (sa: SockAddr) (vec: Vector# r Word8#): S (Write r) Unit
+size_sockaddr: Nat = 16 
+
+-- | Write a SockAddr structure to a memory buffer.
+-- The buffer must have size at least `size_sockaddr`.
+writeSockAddr [r : Region] (sa: SockAddr) (vec: Vector r Word8): S (Write r) Unit
   = case sa of
       SockAddrInet port addr ->
-        do
-            let size = 16 
-            let af: Word16# = truncate# (familyToC AF_INET)
-            vectorWrite# vec 0 (truncate# (shr# af 0w16))
-            vectorWrite# vec 1 (truncate# (shr# af 8w16))
+        do  -- struct sockaddr_in {
+            --   uint8_t        sin_family;
+            --   uint16_t       sin_port;
+            --   struct in_addr sin_addr;
+            -- }
 
-            vectorWrite# vec 2 (truncate# (shr# port 8w16))
-            vectorWrite# vec 3 (truncate# (shr# port 0w16))
-
-            vectorWrite# vec 4 (truncate# (shr# addr 24w32))
-            vectorWrite# vec 5 (truncate# (shr# addr 16w32))
-            vectorWrite# vec 6 (truncate# (shr# addr  8w32))
-            vectorWrite# vec 7 (truncate# (shr# addr  0w32))
+            putWord8    vec 0 (truncate# (familyToC AF_INET))
+            putWord16be vec 2 port
+            putWord32be vec 4 addr
             ()
+
+putWord8 [r: Region] (vec: Vector r Word8) (index: Nat) (val: Word8): S (Write r) Unit
+  = do
+        vectorWrite# vec index val
+        ()
+
+putWord16be [r: Region] (vec: Vector r Word8) (index: Nat) (val: Word16): S (Write r) Unit
+  = do 
+        vectorWrite# vec (add# index 0) (truncate# (shr# val 8w16))
+        vectorWrite# vec (add# index 1) (truncate# (shr# val 0w16))
+        ()
+
+putWord32be [r: Region] (vec: Vector r Word8) (index: Nat) (val: Word32): S (Write r) Unit
+  = do 
+        vectorWrite# vec (add# index 0) (truncate# (shr# val 24w32))
+        vectorWrite# vec (add# index 1) (truncate# (shr# val 16w32))
+        vectorWrite# vec (add# index 2) (truncate# (shr# val  8w32))
+        vectorWrite# vec (add# index 3) (truncate# (shr# val  0w32))
+        ()
