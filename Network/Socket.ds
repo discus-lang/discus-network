@@ -13,20 +13,24 @@ import foreign abstract type
 
 import foreign c value
 
-  socket : CInt -> CInt -> CInt -> S SOCKET CInt
-  bind : FD -> Word64# -> Nat# -> S SOCKET CInt
-  connect : FD -> Word64# -> Nat# -> S SOCKET CInt
+  socket : CInt -> CInt -> CInt -> S SOCKET Word64
+  bind : FD -> Word64# -> Nat# -> S SOCKET Word64
+  connect : FD -> Word64# -> Nat# -> S SOCKET Word64
 
-  write : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Read r) CInt
-  read : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Write r) CInt
+  write : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Read r) Word64
+  read : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Write r) Word64
 
   ddcVectorGuts : {@r: Region} -> Vector# r Word8# -> Word64#
+
+  get_errno : Unit -> S SOCKET Nat
 
 import Data.Numeric.Word8
 import Data.Numeric.Word16
 import Data.Numeric.Word32
+import Data.Numeric.Word64
 import Data.Numeric.Int
 import Data.Numeric.Nat
+import Data.Either
 
 where
 
@@ -48,10 +52,22 @@ data Family where
 data SocketType where
   SOCK_STREAM : SocketType
 
-type ProtocolNumber = Nat#
+type ProtocolNumber = Nat
 
-networkSocket_socket (family: Family) (type_: SocketType) (protocol: ProtocolNumber): S SOCKET Socket
-  = Socket (truncate# (socket (familyToC family) (socketTypeToC type_) (promote# protocol)))
+-- | Errors, represented by their errno value.
+data SocketError where
+  SocketError : Nat -> SocketError
+
+networkSocket_socket
+  (family: Family)
+  (type_: SocketType)
+  (protocol: ProtocolNumber)
+  : S SOCKET (Either SocketError Socket)
+  = do
+        ret = socket (familyToC family) (socketTypeToC type_) (promote# protocol)
+        if band ret 0x80000000w64 /= 0w64
+          then Left (SocketError (get_errno ()))
+          else Right (Socket (truncate# ret))
 
 familyToC (x: Family): CInt
   = case x of
@@ -69,29 +85,41 @@ data SockAddr where
     -> HostAddress
     -> SockAddr
 
-networkSocket_bind : Socket -> SockAddr -> S SOCKET Unit
+networkSocket_bind : Socket -> SockAddr -> S SOCKET (Either SocketError Unit)
 networkSocket_bind (Socket s) sockaddr
   = private r with { Alloc r; Write r; Read r } in
     do    
-          sockaddr_vec : Vector r Word8 = vectorAlloc# [r] size_sockaddr
-          writeSockAddr sockaddr sockaddr_vec
-          bind s (ddcVectorGuts sockaddr_vec) size_sockaddr
-          ()
+        sockaddr_vec : Vector r Word8 = vectorAlloc# [r] size_sockaddr
+        writeSockAddr sockaddr sockaddr_vec
+        ret = bind s (ddcVectorGuts sockaddr_vec) size_sockaddr
+        if band ret 0x80000000w64 /= 0w64
+          then Left (SocketError (get_errno ()))
+          else Right ()
 
-networkSocket_connect : Socket -> SockAddr -> S SOCKET Unit
+networkSocket_connect : Socket -> SockAddr -> S SOCKET (Either SocketError Unit)
 networkSocket_connect (Socket s) sockaddr
   = private r with { Alloc r; Write r; Read r } in
     do    
-          sockaddr_vec : Vector r Word8 = vectorAlloc# [r] size_sockaddr
-          writeSockAddr sockaddr sockaddr_vec
-          connect s (ddcVectorGuts sockaddr_vec) size_sockaddr
-          ()
+        sockaddr_vec : Vector r Word8 = vectorAlloc# [r] size_sockaddr
+        writeSockAddr sockaddr sockaddr_vec
+        ret = connect s (ddcVectorGuts sockaddr_vec) size_sockaddr
+        if band ret 0x80000000w64 /= 0w64
+          then Left (SocketError (get_errno ()))
+          else Right ()
 
-networkSocket_write [r : Region] ((Socket s): Socket) (vec: Vector r Word8): S (SOCKET + Read r) Int#
-  = write [r] s (ddcVectorGuts vec) (vectorLength# [r] [Word8#] vec)
+networkSocket_write [r : Region] ((Socket s): Socket) (vec: Vector r Word8): S (SOCKET + Read r) (Either SocketError Nat)
+  = do
+        ret = write [r] s (ddcVectorGuts vec) (vectorLength# [r] [Word8#] vec)
+        if band ret 0x80000000w64 /= 0w64
+          then Left (SocketError (get_errno ()))
+          else Right (truncate# ret)
 
-networkSocket_read [r : Region] ((Socket s): Socket) (vec: Vector r Word8): S (SOCKET + Write r) Int#
-  = read [r] s (ddcVectorGuts vec) (vectorLength# [r] [Word8#] vec)
+networkSocket_read [r : Region] ((Socket s): Socket) (vec: Vector r Word8): S (SOCKET + Write r) (Either SocketError Nat)
+  = do
+        ret = read [r] s (ddcVectorGuts vec) (vectorLength# [r] [Word8#] vec)
+        if band ret 0x80000000w64 /= 0w64
+          then Left (SocketError (get_errno ()))
+          else Right (truncate# ret)
 
 size_sockaddr: Nat = 16 
 

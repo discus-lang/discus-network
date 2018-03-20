@@ -1,28 +1,50 @@
 module Main
 import Class.Show
+import Class.Monad
+import Class.Applicative
+import Class.Functor
 import Data.Numeric.Word8
 import Data.Text
 import Network.Socket
 import System.IO.Console
 where
 
+main : Unit -> S (SOCKET + Console) Unit
 main ()
-  = do  
-        sock = networkSocket_socket AF_INET SOCK_STREAM 0
-        networkSocket_bind sock (SockAddrInet 0w16 0w32)
-        networkSocket_connect sock (SockAddrInet 1234w16 0w32)
-
-        writel $ "Connected"
-
-        private r with { Alloc r; Read r; Write r } in
-          do
-              nbytes = networkSocket_write sock (vectorOfText [r] "Hello World!\n")
-              writel $ "Written " % show (truncate# [Nat] nbytes) % " bytes"
-
-        private r with { Alloc r; Read r; Write r } in
-          do
-              readBuf = vectorAlloc# [r] [Word8] 1024
-              nbytes = networkSocket_read sock readBuf
-              writel $ "Read " % show (truncate# [Nat] nbytes) % " bytes"
-
+  = case mainEither () of
+      Left (SocketError err) ->
+        writel $ "Failed (errno=" % show err % ")"
+      Right ->
         ()
+
+mainEither : Unit -> S (SOCKET + Console) (Either SocketError Unit)
+mainEither ()
+  = bindS (weakeff (SOCKET + Console) in networkSocket_socket AF_INET SOCK_STREAM 0)             $ \sock ->
+    bindS (weakeff (SOCKET + Console) in networkSocket_bind sock (SockAddrInet 0w16 0w32))       $ \_ ->
+    bindS (weakeff (SOCKET + Console) in networkSocket_connect sock (SockAddrInet 1234w16 0w32)) $ \_ ->
+
+    bindS (weakeff (SOCKET + Console) in do writel "Connected"; pureS ())                        $ \_ ->
+
+    bindS (private r with { Alloc r; Read r; Write r } in
+             networkSocket_write sock (vectorOfText [r] "Hello World!\n"))                       $ \nbytes ->
+    bindS (weakeff (SOCKET + Console) in
+           do writel $ "Written " % show (truncate# [Nat] nbytes) % " bytes"; pureS ())          $ \_ ->
+
+    bindS (private r with { Alloc r; Read r; Write r } in
+           do readBuf = vectorAlloc# [r] [Word8] 1024
+              networkSocket_read sock readBuf)                                                   $ \nbytes ->
+    bindS (weakeff (SOCKET + Console) in
+           do writel $ "Read " % show (truncate# [Nat] nbytes) % " bytes"; pureS ())             $ \_ ->
+
+    pureS ()
+
+---------------------------------------------------
+
+-- | Monadic `bind` with effectful continuation.
+bindS (e : Either e a) (k: a -> S eff (Either e b)): S eff (Either e b)
+  = case e of
+      Left l -> Left l
+      Right x -> k x
+
+pureS (x: a): S (SOCKET + Console) (Either SocketError a)
+  = weakeff (SOCKET + Console) in Right x
