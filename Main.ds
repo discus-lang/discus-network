@@ -46,5 +46,5 @@ bindS (e : Either e a) (k: a -> S eff (Either e b)): S eff (Either e b)
       Left l -> Left l
       Right x -> k x
 
-pureS (x: a): S (SOCKET + Console) (Either SocketError a)
+pureS (x: a): S (SOCKET + Console) (Either e a)
   = weakeff (SOCKET + Console) in Right x
