@@ -32,25 +32,49 @@ Doesn't check errors.
 
 1. Get a running `ddc`.
 
-2. Compile the example: `ddc Main.ds`
+    Currently requires a patched `ddc`:
+
+    ```
+    diff --git a/src/s1/ddc-build/DDC/Build/Builder.hs b/src/s1/ddc-build/DDC/Build/Builder.hs
+    index f95628bd2..27bd02c9a 100644
+    --- a/src/s1/ddc-build/DDC/Build/Builder.hs
+    +++ b/src/s1/ddc-build/DDC/Build/Builder.hs
+    @@ -457,6 +457,7 @@ builder_X8664_Linux config host
+                     [ "gcc -m64"
+                     , "-o", binFile
+                     , intercalate " " oFiles
+    +                , "get_errno.o"
+                     , builderConfigBaseLibDir config
+                             </> "ddc-runtime" </> "build"
+                             </> builderConfigLibFile config
+    ```
+
+    This is required to link the C module. This will not be needed when `ddc`
+    gains the ability to link user-supplied `.o` files.
+
+2. Compile the C module: `cc -c get_errno.c`
+
+3. Compile the example: `ddc Main.ds`
 
 3. Start a server (in another terminal): `nc -l -p 1234`
 
 4. Run the example:
 
     ```
-    strace ./Main
+    ./Main
     ```
 
-    Currently the most convenient method of inspecting behavior of the program is `strace`.
+    The program will write `Hello, World!` to the socket, and read from it. Type
+    something into the server terminal, and the program should respond with
+    `Read N bytes`, where N is the length of the response.
+
     Expected output:
 
     ```
-    execve("./Main", ["./Main"], 0x7fff50a7d430 /* 51 vars */) = 0
-    ... irrelevant junk ...
-    socket(AF_INET, SOCK_STREAM, IPPROTO_IP) = 3
-    connect(3, {sa_family=AF_INET, sin_port=htons(1234), sin_addr=inet_addr("0.0.0.0")}, 16) = 0
-    write(3, "Hello World!\n\0", 14)        = 14
-    exit_group(0)                           = ?
-    +++ exited with 0 +++
+    Connected
+    Written 14 bytes
+    Read 5 bytes
     ```
+
+    When something goes wrong, it may be helpful to run the program under
+    `strace`.
