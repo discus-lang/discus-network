@@ -26,7 +26,7 @@ POSIX functions:
 
 ## Known issues
 
-Doesn't check errors.
+Probably not very portable (tested only on author's machine).
 
 ## Running the example program
 
