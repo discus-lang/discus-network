@@ -28,7 +28,7 @@ POSIX functions:
 
 Doesn't check errors.
 
-## Running
+## Running the example program
 
 1. Get a running `ddc`.
 
