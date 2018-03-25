@@ -93,12 +93,10 @@ data SockAddr where
     -> HostAddress
     -> SockAddr
 
--- *** add 'mutable r in ...', 'constant r in ..'  sugar.
-
 
 networkSocket_bind : Socket -> SockAddr -> S (SOCKET + Errno) Unit
 networkSocket_bind (Socket s) sockaddr
-  = private r with { Alloc r; Write r; Read r } in
+  = mutable r in
     do
         sockaddr_vec : Vector r Word8 = vectorAlloc# [r] size_sockaddr
         writeSockAddr sockaddr sockaddr_vec
@@ -110,7 +108,7 @@ networkSocket_bind (Socket s) sockaddr
 
 networkSocket_connect : Socket -> SockAddr -> S (SOCKET + Errno) Unit
 networkSocket_connect (Socket s) sockaddr
-  = private r with { Alloc r; Write r; Read r } in
+  = mutable r in
     do
         sockaddr_vec : Vector r Word8 = vectorAlloc# [r] size_sockaddr
         writeSockAddr sockaddr sockaddr_vec
@@ -120,7 +118,7 @@ networkSocket_connect (Socket s) sockaddr
          $ box throwSocket errno_get "connect failed"
 
 
-networkSocket_write [r : Region]
+networkSocket_write
         ((Socket s): Socket) (vec: Vector r Word8)
         : S (SOCKET + Errno + Read r) Nat
   = do
@@ -132,7 +130,7 @@ networkSocket_write [r : Region]
         truncate# ret
 
 
-networkSocket_read [r : Region]
+networkSocket_read
         ((Socket s): Socket) (vec: Vector r Word8)
         : S (SOCKET + Errno + Write r) Nat
   = do
@@ -148,7 +146,7 @@ size_sockaddr: Nat = 16
 
 -- | Write a SockAddr structure to a memory buffer.
 -- The buffer must have size at least `size_sockaddr`.
-writeSockAddr [r : Region] (sa: SockAddr) (vec: Vector r Word8): S (Write r) Unit
+writeSockAddr (sa: SockAddr) (vec: Vector r Word8): S (Write r) Unit
   = case sa of
       SockAddrInet port addr ->
         do  -- struct sockaddr_in {
@@ -162,18 +160,18 @@ writeSockAddr [r : Region] (sa: SockAddr) (vec: Vector r Word8): S (Write r) Uni
             putWord32be vec 4 addr
             ()
 
-putWord8 [r: Region] (vec: Vector r Word8) (index: Nat) (val: Word8): S (Write r) Unit
+putWord8 (vec: Vector r Word8) (index: Nat) (val: Word8): S (Write r) Unit
   = do
         vectorWrite# vec index val
         ()
 
-putWord16be [r: Region] (vec: Vector r Word8) (index: Nat) (val: Word16): S (Write r) Unit
+putWord16be (vec: Vector r Word8) (index: Nat) (val: Word16): S (Write r) Unit
   = do
         vectorWrite# vec (add# index 0) (truncate# (shr# val 8w16))
         vectorWrite# vec (add# index 1) (truncate# (shr# val 0w16))
         ()
 
-putWord32be [r: Region] (vec: Vector r Word8) (index: Nat) (val: Word32): S (Write r) Unit
+putWord32be (vec: Vector r Word8) (index: Nat) (val: Word32): S (Write r) Unit
   = do
         vectorWrite# vec (add# index 0) (truncate# (shr# val 24w32))
         vectorWrite# vec (add# index 1) (truncate# (shr# val 16w32))

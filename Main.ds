@@ -29,17 +29,19 @@ mainSocket ()
         writel "Connected"
 
         nbytes
-         = private r with { Alloc r; Read r; Write r } in
+         = mutable r in
            networkSocket_write sock (vectorOfText [r] "Hello World!\n")
 
         writel $ "Written " % show (truncate# [Nat] nbytes) % " bytes"
 
-        nRead
-         = private r with { Alloc r; Read r; Write r } in
+        result
+         = extend RegionText using mutable r in
            do   readBuf = vectorAlloc# [r] [Word8] 1024
-                networkSocket_read sock readBuf
+                nBytes  = networkSocket_read sock readBuf
+                (readBuf, nBytes)
 
-        writel $ "Read " % show (truncate# [Nat] nbytes) % " bytes"
+        writel $ "Read " % show (truncate# [Nat] (snd result)) % " bytes"
+        writel $ TextVec (fst result)
 
 
 ---------------------------------------------------
