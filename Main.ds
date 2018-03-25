@@ -9,34 +9,38 @@ import Network.Socket
 import System.IO.Console
 where
 
-main : Unit -> S (SOCKET + Console) Unit
+main : Unit -> S (SOCKET + Errno + Console + Error) Unit
 main ()
-  = case mainEither () of
-      Left (SocketError err) ->
-        writel $ "Failed (errno=" % show err % ")"
-      Right ->
-        ()
+  = case tryEither (box mainSocket ()) of
+      Left (ExceptionSystemNetwork errno msg)
+       -> do    writel $ "Failed (errno=" % show errno %% "msg=" % show msg % ")"
+                writel $ errno_showMessage errno
 
-mainEither : Unit -> S (SOCKET + Console) (Either SocketError Unit)
-mainEither ()
-  = bindS (weakeff (SOCKET + Console) in networkSocket_socket AF_INET SOCK_STREAM 0)             $ \sock ->
-    bindS (weakeff (SOCKET + Console) in networkSocket_bind sock (SockAddrInet 0w16 0w32))       $ \_ ->
-    bindS (weakeff (SOCKET + Console) in networkSocket_connect sock (SockAddrInet 1234w16 0w32)) $ \_ ->
+      Left ex -> throw ex
+      Right   -> ()
 
-    bindS (weakeff (SOCKET + Console) in do writel "Connected"; pureS ())                        $ \_ ->
 
-    bindS (private r with { Alloc r; Read r; Write r } in
-             networkSocket_write sock (vectorOfText [r] "Hello World!\n"))                       $ \nbytes ->
-    bindS (weakeff (SOCKET + Console) in
-           do writel $ "Written " % show (truncate# [Nat] nbytes) % " bytes"; pureS ())          $ \_ ->
+mainSocket : Unit -> S (SOCKET + Errno + Console) Unit
+mainSocket ()
+ = do
+        sock = networkSocket_socket AF_INET SOCK_STREAM 0
+        networkSocket_bind    sock (SockAddrInet 0w16 0w32)
+        networkSocket_connect sock (SockAddrInet 1234w16 0w32)
+        writel "Connected"
 
-    bindS (private r with { Alloc r; Read r; Write r } in
-           do readBuf = vectorAlloc# [r] [Word8] 1024
-              networkSocket_read sock readBuf)                                                   $ \nbytes ->
-    bindS (weakeff (SOCKET + Console) in
-           do writel $ "Read " % show (truncate# [Nat] nbytes) % " bytes"; pureS ())             $ \_ ->
+        nbytes
+         = private r with { Alloc r; Read r; Write r } in
+           networkSocket_write sock (vectorOfText [r] "Hello World!\n")
 
-    pureS ()
+        writel $ "Written " % show (truncate# [Nat] nbytes) % " bytes"
+
+        nRead
+         = private r with { Alloc r; Read r; Write r } in
+           do   readBuf = vectorAlloc# [r] [Word8] 1024
+                networkSocket_read sock readBuf
+
+        writel $ "Read " % show (truncate# [Nat] nbytes) % " bytes"
+
 
 ---------------------------------------------------
 

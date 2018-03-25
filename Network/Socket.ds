@@ -8,21 +8,22 @@ export {
   networkSocket_read;
 }
 
+import Control.Exception
+
 import foreign abstract type
   SOCKET : Effect
 
 import foreign c value
 
-  socket : CInt -> CInt -> CInt -> S SOCKET Word64
-  bind : FD -> Word64# -> Nat# -> S SOCKET Word64
+  socket  : CInt -> CInt -> CInt -> S SOCKET Word64
+  bind    : FD -> Word64# -> Nat# -> S SOCKET Word64
   connect : FD -> Word64# -> Nat# -> S SOCKET Word64
 
-  write : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Read r) Word64
-  read : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Write r) Word64
+  write   : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Read r)  Word64
+  read    : [r : Region]. FD -> Word64# -> Nat# -> S (SOCKET + Write r) Word64
 
   ddcVectorGuts : {@r: Region} -> Vector# r Word8# -> Word64#
 
-  get_errno : Unit -> S SOCKET Nat
 
 import Data.Numeric.Word8
 import Data.Numeric.Word16
@@ -31,7 +32,7 @@ import Data.Numeric.Word64
 import Data.Numeric.Int
 import Data.Numeric.Nat
 import Data.Either
-
+import System.Posix.Errno
 where
 
 type CInt = Int
@@ -56,18 +57,25 @@ type ProtocolNumber = Nat
 
 -- | Errors, represented by their errno value.
 data SocketError where
-  SocketError : Nat -> SocketError
+  SocketError : Int -> SocketError
+
+-- | Throw an exception, assigning the effect to SOCKET.
+throwSocket (errno: Int) (msg: Text): S SOCKET Unit
+ = ddcPrimExceptionThrow {@SOCKET} {@Unit}
+ $ ExceptionSystemNetwork errno msg
 
 networkSocket_socket
   (family: Family)
   (type_: SocketType)
   (protocol: ProtocolNumber)
-  : S SOCKET (Either SocketError Socket)
+  : S (SOCKET + Errno) Socket
   = do
         ret = socket (familyToC family) (socketTypeToC type_) (promote# protocol)
-        if band ret 0x80000000w64 /= 0w64
-          then Left (SocketError (get_errno ()))
-          else Right (Socket (truncate# ret))
+
+        unless (band ret 0x80000000w64 == 0w64)
+         $ box throwSocket errno_get "socket creation failed"
+
+        Socket (truncate# ret)
 
 familyToC (x: Family): CInt
   = case x of
@@ -85,43 +93,58 @@ data SockAddr where
     -> HostAddress
     -> SockAddr
 
-networkSocket_bind : Socket -> SockAddr -> S SOCKET (Either SocketError Unit)
+-- *** add 'mutable r in ...', 'constant r in ..'  sugar.
+
+
+networkSocket_bind : Socket -> SockAddr -> S (SOCKET + Errno) Unit
 networkSocket_bind (Socket s) sockaddr
   = private r with { Alloc r; Write r; Read r } in
-    do    
+    do
         sockaddr_vec : Vector r Word8 = vectorAlloc# [r] size_sockaddr
         writeSockAddr sockaddr sockaddr_vec
         ret = bind s (ddcVectorGuts sockaddr_vec) size_sockaddr
-        if band ret 0x80000000w64 /= 0w64
-          then Left (SocketError (get_errno ()))
-          else Right ()
 
-networkSocket_connect : Socket -> SockAddr -> S SOCKET (Either SocketError Unit)
+        unless (band ret 0x80000000w64 == 0w64)
+         $ box throwSocket errno_get "bind failed"
+
+
+networkSocket_connect : Socket -> SockAddr -> S (SOCKET + Errno) Unit
 networkSocket_connect (Socket s) sockaddr
   = private r with { Alloc r; Write r; Read r } in
-    do    
+    do
         sockaddr_vec : Vector r Word8 = vectorAlloc# [r] size_sockaddr
         writeSockAddr sockaddr sockaddr_vec
         ret = connect s (ddcVectorGuts sockaddr_vec) size_sockaddr
-        if band ret 0x80000000w64 /= 0w64
-          then Left (SocketError (get_errno ()))
-          else Right ()
 
-networkSocket_write [r : Region] ((Socket s): Socket) (vec: Vector r Word8): S (SOCKET + Read r) (Either SocketError Nat)
+        unless (band ret 0x80000000w64 == 0w64)
+         $ box throwSocket errno_get "connect failed"
+
+
+networkSocket_write [r : Region]
+        ((Socket s): Socket) (vec: Vector r Word8)
+        : S (SOCKET + Errno + Read r) Nat
   = do
         ret = write [r] s (ddcVectorGuts vec) (vectorLength# [r] [Word8#] vec)
-        if band ret 0x80000000w64 /= 0w64
-          then Left (SocketError (get_errno ()))
-          else Right (truncate# ret)
 
-networkSocket_read [r : Region] ((Socket s): Socket) (vec: Vector r Word8): S (SOCKET + Write r) (Either SocketError Nat)
+        unless (band ret 0x80000000w64 == 0w64)
+         $ box throwSocket errno_get "write failed"
+
+        truncate# ret
+
+
+networkSocket_read [r : Region]
+        ((Socket s): Socket) (vec: Vector r Word8)
+        : S (SOCKET + Errno + Write r) Nat
   = do
         ret = read [r] s (ddcVectorGuts vec) (vectorLength# [r] [Word8#] vec)
-        if band ret 0x80000000w64 /= 0w64
-          then Left (SocketError (get_errno ()))
-          else Right (truncate# ret)
 
-size_sockaddr: Nat = 16 
+        unless (band ret 0x80000000w64 == 0w64)
+         $ box throwSocket errno_get "read failed"
+
+        truncate# ret
+
+
+size_sockaddr: Nat = 16
 
 -- | Write a SockAddr structure to a memory buffer.
 -- The buffer must have size at least `size_sockaddr`.
@@ -145,13 +168,13 @@ putWord8 [r: Region] (vec: Vector r Word8) (index: Nat) (val: Word8): S (Write r
         ()
 
 putWord16be [r: Region] (vec: Vector r Word8) (index: Nat) (val: Word16): S (Write r) Unit
-  = do 
+  = do
         vectorWrite# vec (add# index 0) (truncate# (shr# val 8w16))
         vectorWrite# vec (add# index 1) (truncate# (shr# val 0w16))
         ()
 
 putWord32be [r: Region] (vec: Vector r Word8) (index: Nat) (val: Word32): S (Write r) Unit
-  = do 
+  = do
         vectorWrite# vec (add# index 0) (truncate# (shr# val 24w32))
         vectorWrite# vec (add# index 1) (truncate# (shr# val 16w32))
         vectorWrite# vec (add# index 2) (truncate# (shr# val  8w32))
